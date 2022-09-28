@@ -20,6 +20,7 @@ flate2 = "1.0.24"
 tar = "0.4.38"
 
 [features]
+# `nobuild` feature is deprecated and does nothing
 nobuild = []
 bundled_proj = []
 # `pkg_config` feature is deprecated and does nothing
@@ -27,4 +28,5 @@ pkg_config = []
 network = []
 
 [package.metadata.docs.rs]
-features = [ "nobuild" ] # This feature will be enabled during the docs.rs build
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]

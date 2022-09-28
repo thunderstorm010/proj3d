@@ -6,11 +6,13 @@ use tar::Archive;
 
 const MINIMUM_PROJ_VERSION: &str = "9.1.0";
 
-#[cfg(feature = "nobuild")]
-fn main() {} // Skip the build script on docs.rs
-
-#[cfg(not(feature = "nobuild"))]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    if let Ok(val) = &env::var("DOCS_RS") {
+        assert_eq!(val, "1");
+        // fake the build for docs.rs
+        return Ok(());
+    }
+
     let include_path = if cfg!(feature = "bundled_proj") {
         eprintln!("feature flags specified source build");
         build_from_source()?

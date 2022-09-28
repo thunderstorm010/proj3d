@@ -28,8 +28,8 @@
 //! implement your own set of callbacks if you wish to make use of them (see the
 //! [`proj`](https://crates.io/crates/proj) crate for an example).
 
-#[cfg(not(feature = "nobuild"))]
+#[cfg(not(docsrs))]
 include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 
-#[cfg(feature = "nobuild")]
+#[cfg(docsrs)]
 include!("bindings_docs-rs.rs");
