@@ -63,22 +63,26 @@ fn result_from_create<T>(context: *mut PJ_CONTEXT, ptr: *mut T) -> Result<*mut T
 /// crate](https://docs.rs/crate/geo-types)
 pub trait Coord<T>
 where
-    T: CoordinateType,
+    T: Float + Copy + PartialOrd + Debug,
 {
     fn x(&self) -> T;
     fn y(&self) -> T;
-    fn from_xy(x: T, y: T) -> Self;
+    fn z(&self) -> T;
+    fn from_xyz(x: T, y: T, z: T) -> Self;
 }
 
-impl<T: CoordinateType> Coord<T> for (T, T) {
+impl<T: CoordinateType> Coord<T> for (T, T, T) {
     fn x(&self) -> T {
         self.0
     }
     fn y(&self) -> T {
         self.1
     }
-    fn from_xy(x: T, y: T) -> Self {
-        (x, y)
+    fn z(&self) -> T {
+        self.2
+    }
+    fn from_xyz(x: T, y: T, z: T) -> Self {
+        (x, y, z)
     }
 }
 
@@ -734,8 +738,10 @@ impl Proj {
         };
         let c_x: c_double = point.x().to_f64().ok_or(ProjError::FloatConversion)?;
         let c_y: c_double = point.y().to_f64().ok_or(ProjError::FloatConversion)?;
+        let c_z: c_double = point.z().to_f64().ok_or(ProjError::FloatConversion)?;
         let new_x;
         let new_y;
+        let new_z;
         let err;
         // Input coords are defined in terms of lambda & phi, using the PJ_LP struct.
         // This signals that we wish to project geodetic coordinates.
@@ -745,7 +751,7 @@ impl Proj {
         let coords = PJ_LPZT {
             lam: c_x,
             phi: c_y,
-            z: 0.0,
+            z: c_z,
             t: f64::INFINITY,
         };
         unsafe {
@@ -753,14 +759,17 @@ impl Proj {
             // PJ_DIRECTION_* determines a forward or inverse projection
             let trans = proj_trans(self.c_proj, inv, PJ_COORD { lpzt: coords });
             // output of coordinates uses the PJ_XY struct
-            new_x = trans.xy.x;
-            new_y = trans.xy.y;
+            new_x = trans.xyz.x;
+            new_y = trans.xyz.y;
+            new_z = trans.xyz.z;
             err = proj_errno(self.c_proj);
         }
         if err == 0 {
-            Ok(Coord::from_xy(
+            Ok(Coord::from_xyz(
                 F::from(new_x).ok_or(ProjError::FloatConversion)?,
                 F::from(new_y).ok_or(ProjError::FloatConversion)?,
+                F::from(new_z).ok_or(ProjError::FloatConversion)?,
+                
             ))
         } else {
             Err(ProjError::Projection(error_message(err)?))
@@ -809,8 +818,10 @@ impl Proj {
     {
         let c_x: c_double = point.x().to_f64().ok_or(ProjError::FloatConversion)?;
         let c_y: c_double = point.y().to_f64().ok_or(ProjError::FloatConversion)?;
+        let c_z: c_double = point.z().to_f64().ok_or(ProjError::FloatConversion)?;
         let new_x;
         let new_y;
+        let new_z;
         let err;
 
         // This doesn't seem strictly correct, but if we set PJ_XY or PJ_LP here, the
@@ -819,20 +830,22 @@ impl Proj {
         let xyzt = PJ_XYZT {
             x: c_x,
             y: c_y,
-            z: 0.0,
+            z: c_z,
             t: f64::INFINITY,
         };
         unsafe {
             proj_errno_reset(self.c_proj);
             let trans = proj_trans(self.c_proj, PJ_DIRECTION_PJ_FWD, PJ_COORD { xyzt });
-            new_x = trans.xy.x;
-            new_y = trans.xy.y;
+            new_x = trans.xyz.x;
+            new_y = trans.xyz.y;
+            new_z = trans.xyz.z;
             err = proj_errno(self.c_proj);
         }
         if err == 0 {
-            Ok(C::from_xy(
+            Ok(C::from_xyz(
                 F::from(new_x).ok_or(ProjError::FloatConversion)?,
                 F::from(new_y).ok_or(ProjError::FloatConversion)?,
+                F::from(new_z).ok_or(ProjError::FloatConversion)?,
             ))
         } else {
             Err(ProjError::Conversion(error_message(err)?))
@@ -942,11 +955,13 @@ impl Proj {
             .map(|point| {
                 let c_x: c_double = point.x().to_f64().ok_or(ProjError::FloatConversion)?;
                 let c_y: c_double = point.y().to_f64().ok_or(ProjError::FloatConversion)?;
+                let c_z: c_double = point.z().to_f64().ok_or(ProjError::FloatConversion)?;
+                
                 Ok(PJ_COORD {
                     xyzt: PJ_XYZT {
                         x: c_x,
                         y: c_y,
-                        z: 0.0,
+                        z: c_z,
                         t: f64::INFINITY,
                     },
                 })
@@ -973,9 +988,10 @@ impl Proj {
             // feels a bit clunky, but we're guaranteed that pj and points have the same length
             unsafe {
                 for (i, coord) in pj.iter().enumerate() {
-                    points[i] = Coord::from_xy(
-                        F::from(coord.xy.x).ok_or(ProjError::FloatConversion)?,
-                        F::from(coord.xy.y).ok_or(ProjError::FloatConversion)?,
+                    points[i] = Coord::from_xyz(
+                        F::from(coord.xyz.x).ok_or(ProjError::FloatConversion)?,
+                        F::from(coord.xyz.y).ok_or(ProjError::FloatConversion)?,
+                        F::from(coord.xyz.z).ok_or(ProjError::FloatConversion)?,
                     )
                 }
             }
@@ -1082,11 +1098,12 @@ mod test {
     struct MyPoint {
         x: f64,
         y: f64,
+        z: f64
     }
 
     impl MyPoint {
-        fn new(x: f64, y: f64) -> Self {
-            MyPoint { x, y }
+        fn new(x: f64, y: f64, z: f64) -> Self {
+            MyPoint { x, y, z }
         }
     }
 
@@ -1099,8 +1116,12 @@ mod test {
             self.y
         }
 
-        fn from_xy(x: f64, y: f64) -> Self {
-            MyPoint { x, y }
+        fn z(&self) -> f64 {
+            self.z
+        }
+
+        fn from_xyz(x: f64, y: f64, z: f64) -> Self {
+            MyPoint { x, y, z }
         }
     }
 
@@ -1199,7 +1220,7 @@ mod test {
         let to = "EPSG:26946";
         let proj = Proj::new_known_crs(from, to, None).unwrap();
         let t = proj
-            .convert(MyPoint::new(4760096.421921, 3744293.729449))
+            .convert(MyPoint::new(4760096.421921, 3744293.729449, 0.0))
             .unwrap();
         assert_relative_eq!(t.x(), 1450880.2910605022);
         assert_relative_eq!(t.y(), 1141263.0111604782);
@@ -1241,7 +1262,7 @@ mod test {
         .unwrap();
         // Geodetic -> Pulkovo 1942(58) / Stereo70 (EPSG 3844)
         let t = stereo70
-            .project(MyPoint::new(0.436332, 0.802851), false)
+            .project(MyPoint::new(0.436332, 0.802851, 0.0), false)
             .unwrap();
         assert_relative_eq!(t.x(), 500119.7035366755, epsilon = 1e-5);
         assert_relative_eq!(t.y(), 500027.77901023754, epsilon = 1e-5);
@@ -1256,7 +1277,7 @@ mod test {
         .unwrap();
         // Pulkovo 1942(58) / Stereo70 (EPSG 3844) -> Geodetic
         let t = stereo70
-            .project(MyPoint::new(500119.70352012233, 500027.77896348457), true)
+            .project(MyPoint::new(500119.70352012233, 500027.77896348457, 0.0), true)
             .unwrap();
         assert_relative_eq!(t.x(), 0.43633200013698786);
         assert_relative_eq!(t.y(), 0.8028510000110507);
@@ -1273,7 +1294,7 @@ mod test {
         .unwrap();
         // OSGB36 (EPSG 27700) -> Geodetic
         let t = osgb36
-            .project(MyPoint::new(548295.39, 182498.46), true)
+            .project(MyPoint::new(548295.39, 182498.46, 0.0), true)
             .unwrap();
         assert_relative_eq!(t.x(), 0.0023755864830313977);
         assert_relative_eq!(t.y(), 0.89922748952037);
@@ -1294,7 +1315,7 @@ mod test {
         println!("{:?}", nad83_m.def().unwrap());
         // Presidio, San Francisco
         let t = nad83_m
-            .convert(MyPoint::new(4760096.421921, 3744293.729449))
+            .convert(MyPoint::new(4760096.421921, 3744293.729449, 0.0))
             .unwrap();
         assert_relative_eq!(t.x(), 1450880.2910605022);
         assert_relative_eq!(t.y(), 1141263.0111604782);
@@ -1326,7 +1347,7 @@ mod test {
         )
         .unwrap();
         let err = nad83_m
-            .convert(MyPoint::new(4760096.421921, 3744293.729449))
+            .convert(MyPoint::new(4760096.421921, 3744293.729449, 0.0))
             .unwrap_err();
         assert_eq!(
             "The conversion failed with the following error: Invalid coordinate",
@@ -1343,17 +1364,17 @@ mod test {
 
         // we expect this first conversion to fail (copied from above test case)
         assert!(nad83_m
-            .convert(MyPoint::new(4760096.421921, 3744293.729449))
+            .convert(MyPoint::new(4760096.421921, 3744293.729449, 0.0))
             .is_err());
 
         // but a subsequent valid conversion should still be successful
-        assert!(nad83_m.convert(MyPoint::new(0.0, 0.0)).is_ok());
+        assert!(nad83_m.convert(MyPoint::new(0.0, 0.0, 0.0)).is_ok());
 
         // also test with project() function
         assert!(nad83_m
-            .project(MyPoint::new(99999.0, 99999.0), false)
+            .project(MyPoint::new(99999.0, 99999.0, 0.0), false)
             .is_err());
-        assert!(nad83_m.project(MyPoint::new(0.0, 0.0), false).is_ok());
+        assert!(nad83_m.project(MyPoint::new(0.0, 0.0, 0.0), false).is_ok());
     }
 
     #[test]
@@ -1362,8 +1383,8 @@ mod test {
         let to = "EPSG:26946";
         let ft_to_m = Proj::new_known_crs(from, to, None).unwrap();
         let mut v = vec![
-            MyPoint::new(4760096.421921, 3744293.729449),
-            MyPoint::new(4760197.421921, 3744394.729449),
+            MyPoint::new(4760096.421921, 3744293.729449, 0.0),
+            MyPoint::new(4760197.421921, 3744394.729449, 0.0),
         ];
         ft_to_m.convert_array(&mut v).unwrap();
         assert_relative_eq!(v[0].x(), 1450880.2910605022f64);
@@ -1378,7 +1399,7 @@ mod test {
         let to = "EPSG:2230";
         let to_feet = Proj::new_known_crs(from, to, None).unwrap();
         // 👽
-        let usa_m = MyPoint::new(-115.797615, 37.2647978);
+        let usa_m = MyPoint::new(-115.797615, 37.2647978, 0.0);
         let usa_ft = to_feet.convert(usa_m).unwrap();
         assert_eq!(6693625.67217475, usa_ft.x());
         assert_eq!(3497301.5918027232, usa_ft.y());

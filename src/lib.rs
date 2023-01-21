@@ -233,9 +233,6 @@ assert_relative_eq!(line[1], Coordinate { x: 538452.2313532799, y: 3602268.06571
 #[cfg(feature = "network")]
 mod network;
 
-#[cfg_attr(docsrs, feature(doc_cfg))]
-#[cfg(feature = "geo-types")]
-mod geo_types;
 
 #[cfg(test)]
 #[macro_use]
